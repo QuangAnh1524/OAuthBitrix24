@@ -37,9 +37,8 @@ public class TokenEntity {
 
     public TokenEntity() {}
 
-    public TokenEntity(long id, String accessToken, Integer expiresIn, String domain, String clientEndpoint, String memberId,
+    public TokenEntity(String accessToken, Integer expiresIn, String domain, String clientEndpoint, String memberId,
                        String refreshToken) {
-        this.id = id;
         this.accessToken = accessToken;
         this.expiresIn = expiresIn;
         this.domain = domain;
