@@ -36,3 +36,7 @@ build/
 .env
 application-secret.properties
 
+# Environment secrets
+.env
+application-secret.env
+*.env
