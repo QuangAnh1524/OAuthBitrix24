@@ -1,6 +1,7 @@
 package com.example.aascapibitrix24.controller;
 
 import com.example.aascapibitrix24.service.TokenService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,24 +19,42 @@ public class OAuthController {
         this.tokenService = tokenService;
     }
 
-    // Nhận sự kiện Install App
-    @PostMapping("/install")
-    public ResponseEntity<String> handleInstallEvent(@RequestBody Map<String, Object> payload) {
-        try {
-            log.info("Nhận được sự kiện install: {}", payload);
+    @GetMapping("/install")
+    public ResponseEntity<String> handleToken() {
+        return ResponseEntity.ok("OK");
+    }
 
-            String event = (String) payload.get("event");
-            if ("ONAPPINSTALL".equals(event)) {
-                Map<String, Object> authData = (Map<String, Object>) payload.get("auth");
-                if (authData != null) {
-                    tokenService.saveTokenFromInstallEvent(authData);
-                    return ResponseEntity.ok("Cài đặt thành công và lưu thành công token!");
-                }
+    @PostMapping(value = "/install", consumes = {"application/x-www-form-urlencoded", "application/json"})
+    public ResponseEntity<String> handleInstall(@RequestParam Map<String, String> formParams, HttpServletRequest request) {
+        try {
+            log.info("Content-Type: {}", request.getContentType());
+            log.info("Form params: {}", formParams);
+
+            String authToken = formParams.get("AUTH_ID");
+            String refreshToken = formParams.get("REFRESH_ID");
+            String memberId = formParams.get("member_id");
+            String domain = formParams.get("DOMAIN");
+            String expiresIn = formParams.get("AUTH_EXPIRES");
+
+            if (authToken != null && refreshToken != null && memberId != null && domain != null) {
+                String clientEndpoint = "https://" + domain + "/rest/";
+                Map<String, Object> authData = Map.of(
+                        "access_token", authToken,
+                        "refresh_token", refreshToken,
+                        "member_id", memberId,
+                        "domain", domain,
+                        "client_endpoint", clientEndpoint,
+                        "expires_in", Integer.parseInt(expiresIn)
+                );
+
+                tokenService.saveTokenFromInstallEvent(authData);
+                return ResponseEntity.ok("INSTALL_FINISH");
             }
-            return ResponseEntity.ok("Đã nhận sự kiện: " + event);
+
+            return ResponseEntity.ok("OK");
         } catch (Exception e) {
-            log.error("Lỗi xử lý sự kiện install", e.getMessage());
-            return ResponseEntity.status(500).body("Lỗi:" + e.getMessage());
+            log.error("Lỗi xử lý install: ", e);
+            return ResponseEntity.status(500).body("ERROR: " + e.getMessage());
         }
     }
 
@@ -44,15 +63,22 @@ public class OAuthController {
         try {
             var token = tokenService.getCurrentToken();
             if (token != null) {
-                return ResponseEntity.ok(Map.of("status", "OK",
+                return ResponseEntity.ok(Map.of(
+                        "status", "OK",
                         "member_id", token.getMemberId(),
                         "domain", token.getDomain(),
-                        "created_at", token.getCreatedAt()));
+                        "created_at", token.getCreatedAt()
+                ));
             } else {
                 return ResponseEntity.ok(Map.of("status", "NO_TOKEN"));
             }
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @GetMapping("/")
+    public ResponseEntity<String> handleRoot() {
+        return ResponseEntity.ok("Server is running");
     }
 }
