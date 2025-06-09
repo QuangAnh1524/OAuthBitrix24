@@ -165,17 +165,35 @@ public class ContactService {
     }
 
     private void createBankRequisites(String contactId, Map<String, Object> contactData) throws Exception {
+        log.info("Creating bank requisites for contactId: {}", contactId);
+
         JsonNode presets = callBitrixAPI("crm.requisite.preset.list", new HashMap<>());
         String presetId = null;
-        if (presets.has("result") && presets.get("result").isArray() && presets.get("result").size() > 0) {
+
+        // Tìm Preset có tên "Person"
+        if (presets.has("result") && presets.get("result").isArray()) {
+            for (JsonNode preset : presets.get("result")) {
+                if ("Person".equals(preset.get("NAME").asText())) {
+                    presetId = preset.get("ID").asText();
+                    log.info("Found Person Preset with ID: {}", presetId);
+                    break;
+                }
+            }
+        }
+
+        // Nếu không tìm thấy Preset "Person", dùng Preset đầu tiên
+        if (presetId == null && presets.get("result").size() > 0) {
             presetId = presets.get("result").get(0).get("ID").asText();
+            log.warn("No Person Preset found, using default Preset ID: {}", presetId);
         }
 
+        // Nếu không có Preset nào, báo lỗi
         if (presetId == null) {
-            log.warn("No requisite preset found");
-            return;
+            log.error("No requisite preset found");
+            throw new RuntimeException("No requisite preset available");
         }
 
+        //Tạo Requisite
         Map<String, Object> params = new HashMap<>();
         params.put("fields", Map.of(
                 "ENTITY_TYPE_ID", 3, // Contact
@@ -187,6 +205,7 @@ public class ContactService {
 
         JsonNode requisiteResult = callBitrixAPI("crm.requisite.add", params);
 
+        //Tạo Bank Detail
         if (requisiteResult.has("result")) {
             String requisiteId = requisiteResult.get("result").asText();
             Map<String, Object> bankParams = new HashMap<>();
@@ -215,24 +234,23 @@ public class ContactService {
         JsonNode requisites = callBitrixAPI("crm.requisite.list", params);
 
         if (requisites.has("result") && requisites.get("result").isArray() && requisites.get("result").size() > 0) {
-            String requisiteId = requisites.get("result").get(0).get("ID").asText();
-            log.info("Found requisiteId: {}", requisiteId);
+            String presetId = requisites.get("result").get(0).get("ID").asText();
+            log.info("Found presetId: {}", presetId);
 
             Map<String, Object> updateParams = new HashMap<>();
-            updateParams.put("id", requisiteId);
+            updateParams.put("id", presetId);
             String bankName = contactData.get("BANK_NAME") != null ? String.valueOf(contactData.get("BANK_NAME")) : "";
             updateParams.put("fields", Map.of("NAME", bankName));
 
-            log.info("Updating requisite with params: {}", updateParams);
+            log.info("Updating preset with params: {}", updateParams);
             callBitrixAPI("crm.requisite.update", updateParams);
 
             Map<String, Object> bankParams = new HashMap<>();
-            bankParams.put("filter", Map.of("ENTITY_ID", requisiteId)); // Sửa thành ENTITY_ID
-            bankParams.put("select", new String[]{"ID", "NAME", "RQ_BANK_NAME", "RQ_ACC_NUM", "ENTITY_ID"});
+            bankParams.put("filter", Map.of("ENTITY_ID", presetId));
+            bankParams.put("select", new String[]{"ID", "NAME", "RQ_BANK_NAME", "RQ_ACC_NUM"});
 
             log.info("Fetching bank details with params: {}", bankParams);
             JsonNode bankDetails = callBitrixAPI("crm.requisite.bankdetail.list", bankParams);
-            log.info("Bank details response: {}", bankDetails);
 
             if (bankDetails.has("result") && bankDetails.get("result").isArray() && bankDetails.get("result").size() > 0) {
                 String bankDetailId = bankDetails.get("result").get(0).get("ID").asText();

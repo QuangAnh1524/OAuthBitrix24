@@ -37,16 +37,17 @@ public class TokenEntity {
 
     public TokenEntity() {}
 
-    public TokenEntity(String accessToken, Integer expiresIn, String domain, String clientEndpoint, String memberId,
-                       String refreshToken) {
+    public TokenEntity(long id, String accessToken, Integer expiresIn, String domain,
+                       String clientEndpoint, String memberId, String refreshToken, LocalDateTime createdAt, LocalDateTime updatedAt) {
+        this.id = id;
         this.accessToken = accessToken;
         this.expiresIn = expiresIn;
         this.domain = domain;
         this.clientEndpoint = clientEndpoint;
         this.memberId = memberId;
         this.refreshToken = refreshToken;
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
     }
 
     public long getId() {
