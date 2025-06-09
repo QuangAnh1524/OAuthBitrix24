@@ -48,28 +48,32 @@ public class OAuthController {
         log.info("Form params: {}", params);
 
         try {
-            try {
-                // Kiểm tra xem có phải interface mode không
-                if (params.containsKey("AUTH_ID")) {
-                    log.info("Interface mode detected");
 
-                    // Luôn lưu/cập nhật token mới, không skip
-                    Map<String, Object> authData = new HashMap<>();
-                    authData.put("AUTH_ID", params.get("AUTH_ID"));
-                    authData.put("REFRESH_ID", params.get("REFRESH_ID"));
-                    authData.put("AUTH_EXPIRES", params.get("AUTH_EXPIRES"));
-                    authData.put("DOMAIN", params.get("DOMAIN"));
-                    authData.put("member_id", params.get("member_id"));
+            // Kiểm tra xem có phải interface mode không
+            if (params.containsKey("AUTH_ID")) {
+                log.info("Interface mode detected");
 
-                    // Luôn save/update token mới
-                    tokenService.saveOrUpdateTokenFromInstallEvent(authData);
-//            } else if ("ONAPPINSTALL".equals(params.get("event"))) {
-//                log.info("Script Only mode detected");
-//                authToken = params.get("auth[access_token]");
-//                refreshToken = formParams.get("auth[refresh_token]");
-//                memberId = formParams.get("auth[member_id]");
-//                domain = formParams.get("auth[domain]");
-//                expiresIn = formParams.get("auth[expires_in]");
+                // Luôn lưu/cập nhật token mới, không skip
+                Map<String, Object> authData = new HashMap<>();
+                authData.put("AUTH_ID", params.get("AUTH_ID"));
+                authData.put("REFRESH_ID", params.get("REFRESH_ID"));
+                authData.put("AUTH_EXPIRES", params.get("AUTH_EXPIRES"));
+                authData.put("DOMAIN", params.get("DOMAIN"));
+                authData.put("member_id", params.get("member_id"));
+
+                // Luôn save/update token mới
+                tokenService.saveOrUpdateTokenFromInstallEvent(authData);
+            } else if ("ONAPPINSTALL".equals(params.get("event"))) {
+                log.info("Script Only mode detected");
+
+                Map<String, Object> authData = new HashMap<>();
+                authData.put("AUTH_ID", params.get("auth[access_token]"));
+                authData.put("REFRESH_ID", params.get("auth[refresh_token]"));
+                authData.put("member_id", params.get("auth[member_id]"));
+                authData.put("DOMAIN", params.get("auth[domain]"));
+                authData.put("AUTH_EXPIRES", params.get("auth[expires_in]"));
+//            System.out.println(authData);
+                tokenService.saveOrUpdateTokenFromInstallEvent(authData);
             } else {
                 log.warn("Invalid install request. Params: {}", params);
                 return ResponseEntity.badRequest().body("Invalid install request");
@@ -83,9 +87,6 @@ public class OAuthController {
         } catch (Exception e) {
             log.error("Error handling install: ", e);
             return ResponseEntity.status(500).body("ERROR: " + e.getMessage());
-        }
-        } catch (Exception e) {
-            throw new RuntimeException(e);
         }
     }
 
@@ -113,7 +114,7 @@ public class OAuthController {
     public ResponseEntity<String> handleCallback() {
         log.info("=== CALLBACK ===");
         return ResponseEntity.ok("OK Script Only");
-                                                 }
+    }
 
     @PostMapping("/callback")
     public ResponseEntity<String> handleScriptOnlyCallback(@RequestParam Map<String, String> formParams,

@@ -281,34 +281,7 @@
 <script>
   let editingContactId = null;
   let allContacts = [];
-
-  // Giả lập dữ liệu mẫu (thay thế bằng API thực tế)
-  const sampleContacts = [
-    {
-      id: 1,
-      name: "Công ty ABC",
-      phone: "0123456789",
-      email: "abc@company.com",
-      website: "https://abc.com",
-      ward: "Phường 1",
-      district: "Quận 1",
-      city: "TP.HCM",
-      bankName: "Vietcombank",
-      bankAccount: "1234567890"
-    },
-    {
-      id: 2,
-      name: "Công ty XYZ",
-      phone: "0987654321",
-      email: "xyz@company.com",
-      website: "",
-      ward: "Phường 2",
-      district: "Quận 2",
-      city: "Hà Nội",
-      bankName: "Techcombank",
-      bankAccount: "0987654321"
-    }
-  ];
+  const apiBaseUrl = 'http://localhost:8080'; // Adjust this to your API base URL
 
   // Load contacts khi trang được tải
   document.addEventListener('DOMContentLoaded', function() {
@@ -344,11 +317,15 @@
     const searchInput = document.getElementById('searchInput');
     searchInput.addEventListener('input', function(e) {
       const searchTerm = e.target.value.toLowerCase();
-      const filteredContacts = allContacts.filter(contact =>
-              contact.name.toLowerCase().includes(searchTerm) ||
-              (contact.phone && contact.phone.includes(searchTerm)) ||
-              (contact.email && contact.email.toLowerCase().includes(searchTerm))
-      );
+      const filteredContacts = allContacts.filter(contact => {
+        const name = (contact.NAME || '').toLowerCase();
+        const phone = (contact.PHONE?.[0]?.VALUE || '').toLowerCase();
+        const email = (contact.EMAIL?.[0]?.VALUE || '').toLowerCase();
+
+        return name.includes(searchTerm) ||
+                phone.includes(searchTerm) ||
+                email.includes(searchTerm);
+      });
       displayContacts(filteredContacts);
     });
   }
@@ -356,9 +333,11 @@
   // Tải danh sách contacts
   async function loadContacts() {
     try {
-      // Giả lập API call - thay thế bằng fetch thực tế
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      allContacts = [...sampleContacts];
+      const response = await fetch(`${apiBaseUrl}/api/contacts`, { method: 'GET' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error_description || 'Failed to load contacts');
+
+      allContacts = data.result || [];
       displayContacts(allContacts);
     } catch (error) {
       showMessage('Lỗi khi tải danh sách contacts: ' + error.message, 'error');
@@ -374,41 +353,64 @@
       return;
     }
 
-    const contactsHtml = contacts.map(contact => `
-            <div class="contact-card">
-                <div class="contact-name">${contact.name}</div>
+    const contactsHtml = contacts.map(contact => {
+      // Xử lý dữ liệu từ Bitrix format
+      const name = contact.NAME || 'N/A';
+      const phone = contact.PHONE?.[0]?.VALUE || '';
+      const email = contact.EMAIL?.[0]?.VALUE || '';
+      const website = contact.WEB?.[0]?.VALUE || '';
+      const address = contact.ADDRESS || '';
+      const id = contact.ID;
 
-                ${contact.phone ? `<div class="contact-info"><strong>📞 SĐT:</strong> <span>${contact.phone}</span></div>` : ''}
-                ${contact.email ? `<div class="contact-info"><strong>📧 Email:</strong> <span>${contact.email}</span></div>` : ''}
-                ${contact.website ? `<div class="contact-info"><strong>🌐 Website:</strong> <span><a href="${contact.website}" target="_blank">${contact.website}</a></span></div>` : ''}
-                ${getFullAddress(contact) ? `<div class="contact-info"><strong>📍 Địa chỉ:</strong> <span>${getFullAddress(contact)}</span></div>` : ''}
-                ${contact.bankName ? `<div class="contact-info"><strong>🏦 NH:</strong> <span>${contact.bankName} - ${contact.bankAccount || ''}</span></div>` : ''}
-
-                <div class="contact-actions">
-                    <button class="btn" onclick="editContact(${contact.id})">✏️ Sửa</button>
-                    <button class="btn btn-danger" onclick="deleteContact(${contact.id})">🗑️ Xóa</button>
-                </div>
-            </div>
-        `).join('');
+      return `
+        <div class="contact-card">
+          <div class="contact-name">${name}</div>
+          ${phone ? `<div class="contact-info"><strong>📞 SĐT:</strong> <span>${phone}</span></div>` : ''}
+          ${email ? `<div class="contact-info"><strong>📧 Email:</strong> <span>${email}</span></div>` : ''}
+          ${website ? `<div class="contact-info"><strong>🌐 Website:</strong> <span><a href="${website}" target="_blank">${website}</a></span></div>` : ''}
+          ${address ? `<div class="contact-info"><strong>📍 Địa chỉ:</strong> <span>${address}</span></div>` : ''}
+          <div class="contact-actions">
+            <button class="btn" onclick="editContact('${id}')">✏️ Sửa</button>
+            <button class="btn btn-danger" onclick="deleteContact('${id}')">🗑️ Xóa</button>
+          </div>
+        </div>
+      `;
+    }).join('');
 
     container.innerHTML = `<div class="contacts-grid">${contactsHtml}</div>`;
   }
 
   // Lấy địa chỉ đầy đủ
   function getFullAddress(contact) {
-    const addressParts = [contact.ward, contact.district, contact.city].filter(part => part && part.trim());
-    return addressParts.join(', ');
+    return contact.ADDRESS || '';
   }
 
   // Tạo contact mới
   async function createContact(contactData) {
     try {
-      // Giả lập API call
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await fetch(`${apiBaseUrl}/api/contacts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          NAME: contactData.name,
+          PHONE: contactData.phone ? [{ VALUE: contactData.phone, VALUE_TYPE: 'WORK' }] : [],
+          EMAIL: contactData.email ? [{ VALUE: contactData.email, VALUE_TYPE: 'WORK' }] : [],
+          WEB: contactData.website ? [{ VALUE: contactData.website, VALUE_TYPE: 'WORK' }] : [],
+          ADDRESS: [contactData.ward, contactData.district, contactData.city].filter(Boolean).join(', '),
+          BANK_NAME: contactData.bankName,
+          BANK_ACCOUNT: contactData.bankAccount
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error_description || 'Failed to create contact');
 
       const newContact = {
-        ...contactData,
-        id: Date.now() // Giả lập ID
+        ID: data.result,
+        NAME: contactData.name,
+        PHONE: contactData.phone ? [{ VALUE: contactData.phone, VALUE_TYPE: 'WORK' }] : [],
+        EMAIL: contactData.email ? [{ VALUE: contactData.email, VALUE_TYPE: 'WORK' }] : [],
+        WEB: contactData.website ? [{ VALUE: contactData.website, VALUE_TYPE: 'WORK' }] : [],
+        ADDRESS: [contactData.ward, contactData.district, contactData.city].filter(Boolean).join(', ')
       };
 
       allContacts.unshift(newContact);
@@ -423,12 +425,32 @@
   // Cập nhật contact
   async function updateContact(id, contactData) {
     try {
-      // Giả lập API call
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await fetch(`${apiBaseUrl}/api/contacts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          NAME: contactData.name,
+          PHONE: contactData.phone ? [{ VALUE: contactData.phone, VALUE_TYPE: 'WORK' }] : [],
+          EMAIL: contactData.email ? [{ VALUE: contactData.email, VALUE_TYPE: 'WORK' }] : [],
+          WEB: contactData.website ? [{ VALUE: contactData.website, VALUE_TYPE: 'WORK' }] : [],
+          ADDRESS: [contactData.ward, contactData.district, contactData.city].filter(Boolean).join(', '),
+          BANK_NAME: contactData.bankName,
+          BANK_ACCOUNT: contactData.bankAccount
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error_description || 'Failed to update contact');
 
-      const index = allContacts.findIndex(c => c.id === id);
+      const index = allContacts.findIndex(c => c.ID == id);
       if (index !== -1) {
-        allContacts[index] = { ...allContacts[index], ...contactData };
+        allContacts[index] = {
+          ID: id,
+          NAME: contactData.name,
+          PHONE: contactData.phone ? [{ VALUE: contactData.phone, VALUE_TYPE: 'WORK' }] : [],
+          EMAIL: contactData.email ? [{ VALUE: contactData.email, VALUE_TYPE: 'WORK' }] : [],
+          WEB: contactData.website ? [{ VALUE: contactData.website, VALUE_TYPE: 'WORK' }] : [],
+          ADDRESS: [contactData.ward, contactData.district, contactData.city].filter(Boolean).join(', ')
+        };
         displayContacts(allContacts);
         resetForm();
         showMessage('Cập nhật contact thành công!', 'success');
@@ -440,19 +462,21 @@
 
   // Sửa contact
   function editContact(id) {
-    const contact = allContacts.find(c => c.id === id);
+    const contact = allContacts.find(c => c.ID == id);
     if (!contact) return;
 
     // Điền dữ liệu vào form
-    document.getElementById('name').value = contact.name || '';
-    document.getElementById('phone').value = contact.phone || '';
-    document.getElementById('email').value = contact.email || '';
-    document.getElementById('website').value = contact.website || '';
-    document.getElementById('ward').value = contact.ward || '';
-    document.getElementById('district').value = contact.district || '';
-    document.getElementById('city').value = contact.city || '';
-    document.getElementById('bankName').value = contact.bankName || '';
-    document.getElementById('bankAccount').value = contact.bankAccount || '';
+    document.getElementById('name').value = contact.NAME || '';
+    document.getElementById('phone').value = contact.PHONE?.[0]?.VALUE || '';
+    document.getElementById('email').value = contact.EMAIL?.[0]?.VALUE || '';
+    document.getElementById('website').value = contact.WEB?.[0]?.VALUE || '';
+    // Giả sử ADDRESS cần được tách thành ward, district, city
+    const addressParts = contact.ADDRESS ? contact.ADDRESS.split(', ') : ['', '', ''];
+    document.getElementById('ward').value = addressParts[0] || '';
+    document.getElementById('district').value = addressParts[1] || '';
+    document.getElementById('city').value = addressParts[2] || '';
+    document.getElementById('bankName').value = contact.BANK_NAME || '';
+    document.getElementById('bankAccount').value = contact.BANK_ACCOUNT || '';
 
     // Chuyển sang chế độ sửa
     editingContactId = id;
@@ -468,10 +492,12 @@
     if (!confirm('Bạn có chắc chắn muốn xóa contact này?')) return;
 
     try {
-      // Giả lập API call
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await fetch(`${apiBaseUrl}/api/contacts/${id}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) throw new Error('Failed to delete contact');
 
-      allContacts = allContacts.filter(c => c.id !== id);
+      allContacts = allContacts.filter(c => c.ID != id);
       displayContacts(allContacts);
       showMessage('Xóa contact thành công!', 'success');
     } catch (error) {

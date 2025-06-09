@@ -144,14 +144,15 @@ public class TokenService {
 
     public void saveOrUpdateTokenFromInstallEvent(Map<String, Object> authData) {
         try {
-            String domain = (String) authData.get("DOMAIN");
+            Object domain = (String) authData.get("DOMAIN");
             String memberId = (String) authData.get("member_id");
 
             // Tìm token hiện tại
             TokenEntity existingToken = tokenRepository.findTopByOrderByCreatedAtDesc();
 
             TokenEntity tokenEntity;
-            if (existingToken != null && domain.equals(existingToken.getDomain()) && memberId.equals(existingToken.getMemberId())) {
+            if (existingToken != null && existingToken.getDomain() != null && existingToken.getDomain().equals(domain) && memberId.equals(existingToken.getMemberId())) {
+
                 // Update token hiện tại
                 tokenEntity = existingToken;
                 log.info("Updating existing token for domain: {} member: {}", domain, memberId);
@@ -166,11 +167,11 @@ public class TokenService {
             tokenEntity.setAccessToken((String) authData.get("AUTH_ID"));
             tokenEntity.setRefreshToken((String) authData.get("REFRESH_ID"));
             tokenEntity.setExpiresIn(Integer.parseInt((String) authData.get("AUTH_EXPIRES")));
-            tokenEntity.setDomain(domain);
+            tokenEntity.setDomain((String) domain);
             tokenEntity.setMemberId(memberId);
 
             // Build client endpoint từ domain
-            if (domain != null && !domain.startsWith("http")) {
+            if (domain != null && !((String) domain).startsWith("http")) {
                 tokenEntity.setClientEndpoint("https://" + domain + "/rest/");
             } else if (domain != null) {
                 tokenEntity.setClientEndpoint(domain + "/rest/");

@@ -24,12 +24,11 @@ public class ContactService {
 
     public ContactService(TokenService tokenService) {
         this.tokenService = tokenService;
-        // Cấu hình RestTemplate để giữ body lỗi
         this.restTemplate = new RestTemplate(new BufferingClientHttpRequestFactory(new SimpleClientHttpRequestFactory()));
         this.objectMapper = new ObjectMapper();
     }
 
-    private JsonNode callBitrixAPI(String method, Map<String, Object> params) throws Exception {
+    public JsonNode callBitrixAPI(String method, Map<String, Object> params) throws Exception {
         TokenEntity token = tokenService.getCurrentToken();
         if (token == null) throw new RuntimeException("No valid token found");
 
@@ -77,30 +76,18 @@ public class ContactService {
         return result;
     }
 
-    // ... (các phương thức khác như getContact, createContact, v.v. giữ nguyên)
-
-    // ... (các phương thức khác như getContact, createContact, v.v. giữ nguyên)
-
-
-    // Lấy contact theo ID
     public JsonNode getContact(String id) throws Exception {
         Map<String, Object> params = new HashMap<>();
         params.put("id", id);
         return callBitrixAPI("crm.contact.get", params);
     }
 
-    // Tạo contact mới
     public JsonNode createContact(Map<String, Object> contactData) throws Exception {
         Map<String, Object> params = new HashMap<>();
-
-        // Chuẩn bị fields cho contact
         Map<String, Object> fields = new HashMap<>();
 
         if (contactData.get("NAME") != null) {
             fields.put("NAME", contactData.get("NAME"));
-        }
-        if (contactData.get("LAST_NAME") != null) {
-            fields.put("LAST_NAME", contactData.get("LAST_NAME"));
         }
         if (contactData.get("PHONE") != null) {
             fields.put("PHONE", contactData.get("PHONE"));
@@ -114,15 +101,10 @@ public class ContactService {
         if (contactData.get("ADDRESS") != null) {
             fields.put("ADDRESS", contactData.get("ADDRESS"));
         }
-        if (contactData.get("COMMENTS") != null) {
-            fields.put("COMMENTS", contactData.get("COMMENTS"));
-        }
-
         params.put("fields", fields);
 
         JsonNode result = callBitrixAPI("crm.contact.add", params);
 
-        // Nếu có thông tin ngân hàng, tạo requisites
         if (contactData.containsKey("BANK_NAME") || contactData.containsKey("BANK_ACCOUNT")) {
             try {
                 String contactId = result.get("result").asText();
@@ -135,19 +117,13 @@ public class ContactService {
         return result;
     }
 
-    // Cập nhật contact
     public JsonNode updateContact(String id, Map<String, Object> contactData) throws Exception {
         Map<String, Object> params = new HashMap<>();
         params.put("id", id);
-
-        // Chuẩn bị fields cho contact
         Map<String, Object> fields = new HashMap<>();
 
         if (contactData.get("NAME") != null) {
             fields.put("NAME", contactData.get("NAME"));
-        }
-        if (contactData.get("LAST_NAME") != null) {
-            fields.put("LAST_NAME", contactData.get("LAST_NAME"));
         }
         if (contactData.get("PHONE") != null) {
             fields.put("PHONE", contactData.get("PHONE"));
@@ -161,15 +137,10 @@ public class ContactService {
         if (contactData.get("ADDRESS") != null) {
             fields.put("ADDRESS", contactData.get("ADDRESS"));
         }
-        if (contactData.get("COMMENTS") != null) {
-            fields.put("COMMENTS", contactData.get("COMMENTS"));
-        }
-
         params.put("fields", fields);
 
         JsonNode result = callBitrixAPI("crm.contact.update", params);
 
-        // Cập nhật thông tin ngân hàng nếu có
         if (contactData.containsKey("BANK_NAME") || contactData.containsKey("BANK_ACCOUNT")) {
             try {
                 updateBankRequisites(id, contactData);
@@ -181,18 +152,14 @@ public class ContactService {
         return result;
     }
 
-    // Xóa contact
     public JsonNode deleteContact(String id) throws Exception {
         Map<String, Object> params = new HashMap<>();
         params.put("id", id);
         return callBitrixAPI("crm.contact.delete", params);
     }
 
-    // Tạo requisites ngân hàng
     private void createBankRequisites(String contactId, Map<String, Object> contactData) throws Exception {
-        // Lấy danh sách preset requisites
         JsonNode presets = callBitrixAPI("crm.requisite.preset.list", new HashMap<>());
-
         String presetId = null;
         if (presets.has("result") && presets.get("result").isArray() && presets.get("result").size() > 0) {
             presetId = presets.get("result").get(0).get("ID").asText();
@@ -203,13 +170,12 @@ public class ContactService {
             return;
         }
 
-        // Tạo requisite
         Map<String, Object> params = new HashMap<>();
         params.put("fields", Map.of(
                 "ENTITY_TYPE_ID", 3,
                 "ENTITY_ID", contactId,
                 "PRESET_ID", presetId,
-                "NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "")),
+                "NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "Default")),
                 "ACTIVE", "Y"
         ));
 
@@ -217,11 +183,9 @@ public class ContactService {
 
         if (requisiteResult.has("result")) {
             String requisiteId = requisiteResult.get("result").asText();
-
-            // Thêm bank detail
             Map<String, Object> bankParams = new HashMap<>();
             bankParams.put("fields", Map.of(
-                    "ENTITY_ID", requisiteId, // Sử dụng requisiteId thay vì contactId
+                    "ENTITY_ID", requisiteId,
                     "COUNTRY_ID", 1,
                     "NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "Default Bank")),
                     "RQ_BANK_NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "")),
@@ -230,14 +194,11 @@ public class ContactService {
                     "SORT", 500
             ));
 
-            // Log để kiểm tra payload
             log.info("Bank detail params: {}", bankParams);
-
             callBitrixAPI("crm.requisite.bankdetail.add", bankParams);
         }
     }
 
-    // Cập nhật requisites ngân hàng
     private void updateBankRequisites(String contactId, Map<String, Object> contactData) throws Exception {
         log.info("Updating bank requisites for contactId: {}, contactData: {}", contactId, contactData);
 
@@ -303,4 +264,3 @@ public class ContactService {
         }
     }
 }
-
