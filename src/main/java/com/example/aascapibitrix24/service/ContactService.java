@@ -144,8 +144,14 @@ public class ContactService {
         if (contactData.containsKey("BANK_NAME") || contactData.containsKey("BANK_ACCOUNT")) {
             try {
                 updateBankRequisites(id, contactData);
-            } catch (Exception e) {
-                log.warn("Could not update bank requisites: ", e);
+            } catch (HttpClientErrorException e) {
+                if (e.getStatusCode() == HttpStatus.FORBIDDEN) {
+                    log.warn("Access denied for updating bank requisites: {}", e.getResponseBodyAsString());
+                    throw new RuntimeException("Access denied for updating bank details. Please check permissions.");
+                } else {
+                    log.error("Could not update bank requisites: ", e);
+                    throw e;
+                }
             }
         }
 
@@ -172,7 +178,7 @@ public class ContactService {
 
         Map<String, Object> params = new HashMap<>();
         params.put("fields", Map.of(
-                "ENTITY_TYPE_ID", 3,
+                "ENTITY_TYPE_ID", 3, // Contact
                 "ENTITY_ID", contactId,
                 "PRESET_ID", presetId,
                 "NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "Default")),
@@ -186,7 +192,7 @@ public class ContactService {
             Map<String, Object> bankParams = new HashMap<>();
             bankParams.put("fields", Map.of(
                     "ENTITY_ID", requisiteId,
-                    "COUNTRY_ID", 1,
+                    "COUNTRY_ID", 122, // Vietnam
                     "NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "Default Bank")),
                     "RQ_BANK_NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "")),
                     "RQ_ACC_NUM", String.valueOf(contactData.getOrDefault("BANK_ACCOUNT", "")),
@@ -203,10 +209,7 @@ public class ContactService {
         log.info("Updating bank requisites for contactId: {}, contactData: {}", contactId, contactData);
 
         Map<String, Object> params = new HashMap<>();
-        params.put("filter", Map.of(
-                "ENTITY_TYPE_ID", 3,
-                "ENTITY_ID", contactId
-        ));
+        params.put("filter", Map.of("ENTITY_TYPE_ID", 3, "ENTITY_ID", contactId));
 
         log.info("Fetching requisites with params: {}", params);
         JsonNode requisites = callBitrixAPI("crm.requisite.list", params);
@@ -218,18 +221,18 @@ public class ContactService {
             Map<String, Object> updateParams = new HashMap<>();
             updateParams.put("id", requisiteId);
             String bankName = contactData.get("BANK_NAME") != null ? String.valueOf(contactData.get("BANK_NAME")) : "";
-            updateParams.put("fields", Map.of(
-                    "NAME", bankName
-            ));
+            updateParams.put("fields", Map.of("NAME", bankName));
 
             log.info("Updating requisite with params: {}", updateParams);
             callBitrixAPI("crm.requisite.update", updateParams);
 
             Map<String, Object> bankParams = new HashMap<>();
-            bankParams.put("filter", Map.of("REQUISITE_ID", requisiteId));
+            bankParams.put("filter", Map.of("ENTITY_ID", requisiteId)); // Sửa thành ENTITY_ID
+            bankParams.put("select", new String[]{"ID", "NAME", "RQ_BANK_NAME", "RQ_ACC_NUM", "ENTITY_ID"});
 
             log.info("Fetching bank details with params: {}", bankParams);
             JsonNode bankDetails = callBitrixAPI("crm.requisite.bankdetail.list", bankParams);
+            log.info("Bank details response: {}", bankDetails);
 
             if (bankDetails.has("result") && bankDetails.get("result").isArray() && bankDetails.get("result").size() > 0) {
                 String bankDetailId = bankDetails.get("result").get(0).get("ID").asText();
@@ -247,13 +250,8 @@ public class ContactService {
                 ));
 
                 log.info("Updating bank detail with params: {}", updateBankParams);
-                try {
-                    JsonNode updateResult = callBitrixAPI("crm.requisite.bankdetail.update", updateBankParams);
-                    log.info("Bank detail update result: {}", updateResult);
-                } catch (HttpClientErrorException e) {
-                    log.error("Failed to update bank detail: HTTP {} - Response: {}", e.getStatusCode(), e.getResponseBodyAsString());
-                    throw new RuntimeException("Failed to update bank detail: " + e.getResponseBodyAsString(), e);
-                }
+                JsonNode updateResult = callBitrixAPI("crm.requisite.bankdetail.update", updateBankParams);
+                log.info("Bank detail update result: {}", updateResult);
             } else {
                 log.info("No bank details found, creating new bank requisites");
                 createBankRequisites(contactId, contactData);
