@@ -17,6 +17,9 @@ public class TokenEntity {
     @Column(name = "expires_in")
     private Integer expiresIn;
 
+    @Column(name = "expires_at")
+    private LocalDateTime expiresAt;
+
     @Column(name = "domain")
     private String domain;
 
@@ -37,11 +40,12 @@ public class TokenEntity {
 
     public TokenEntity() {}
 
-    public TokenEntity(long id, String accessToken, Integer expiresIn, String domain,
+    public TokenEntity(long id, String accessToken, Integer expiresIn, LocalDateTime expiresAt, String domain,
                        String clientEndpoint, String memberId, String refreshToken, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.accessToken = accessToken;
         this.expiresIn = expiresIn;
+        this.expiresAt = expiresAt;
         this.domain = domain;
         this.clientEndpoint = clientEndpoint;
         this.memberId = memberId;
@@ -68,6 +72,14 @@ public class TokenEntity {
 
     public Integer getExpiresIn() {
         return expiresIn;
+    }
+
+    public LocalDateTime getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(LocalDateTime expiresAt) {
+        this.expiresAt = expiresAt;
     }
 
     public void setExpiresIn(Integer expiresIn) {

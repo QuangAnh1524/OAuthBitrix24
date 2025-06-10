@@ -43,15 +43,15 @@ public class TokenService {
         try {
             TokenEntity tokenEntity = new TokenEntity();
             tokenEntity.setAccessToken((String) authData.get("access_token"));
+            tokenEntity.setRefreshToken((String) authData.get("refresh_token"));
             tokenEntity.setExpiresIn((Integer) authData.get("expires_in"));
+            tokenEntity.setExpiresAt(LocalDateTime.now().plusSeconds((Integer) authData.get("expires_in"))); // Lưu thời điểm hết hạn
             tokenEntity.setDomain((String) authData.get("domain"));
             tokenEntity.setMemberId((String) authData.get("member_id"));
-            tokenEntity.setRefreshToken((String) authData.get("refresh_token"));
             tokenEntity.setClientEndpoint((String) authData.get("client_endpoint"));
             tokenEntity.setCreatedAt(LocalDateTime.now());
             tokenEntity.setUpdatedAt(LocalDateTime.now());
 
-            // Build client endpoint từ domain
             String domain = (String) authData.get("DOMAIN");
             if (domain != null && !domain.startsWith("http")) {
                 tokenEntity.setClientEndpoint("https://" + domain + "/rest/");
@@ -59,31 +59,46 @@ public class TokenService {
                 tokenEntity.setClientEndpoint(domain + "/rest/");
             }
 
-            tokenEntity.setCreatedAt(LocalDateTime.now());
-            tokenEntity.setUpdatedAt(LocalDateTime.now());
-
             tokenRepository.save(tokenEntity);
-            log.info("Token saved successfully for domain: {} and member: {}",
-                    tokenEntity.getDomain(), tokenEntity.getMemberId());
+            log.info("Token saved successfully for domain: {} and member: {}", tokenEntity.getDomain(), tokenEntity.getMemberId());
         } catch (Exception e) {
             log.error("Error when saving token: ", e);
             throw new RuntimeException("Failed to save token: " + e.getMessage());
         }
     }
 
-    public TokenEntity getCurrentToken() {
-        return tokenRepository.findTopByOrderByCreatedAtDesc();
+    public TokenEntity getCurrentToken() throws Exception {
+        TokenEntity token = tokenRepository.findTopByOrderByCreatedAtDesc();
+        if (token == null) {
+        log.error("No token found");
+        throw new RuntimeException("No valid token found");
+    }
+
+    // Kiểm tra token có hết hạn không
+        if (isTokenExpired(token)) {
+        log.info("Token expired for domain: {}. Refreshing token...", token.getDomain());
+        return refreshToken();
+    }
+
+        return token;
+}
+
+    private boolean isTokenExpired(TokenEntity token) {
+        if (token.getExpiresAt() == null) {
+            return true;
+        }
+        // Kiểm tra trước 5 phút để tránh rủi ro
+        return LocalDateTime.now().isAfter(token.getExpiresAt().minusMinutes(5));
     }
 
     public TokenEntity refreshToken() throws Exception {
-        TokenEntity token = getCurrentToken();
+        TokenEntity token = tokenRepository.findTopByOrderByCreatedAtDesc();
         if (token == null) {
             log.error("No token found to refresh");
             throw new RuntimeException("No token found to refresh");
         }
 
         log.info("Attempting to refresh token for domain: {} member: {}", token.getDomain(), token.getMemberId());
-        log.info("Current refresh token: {}", token.getRefreshToken());
 
         String url = oauthServer + "/oauth/token/";
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
@@ -92,96 +107,67 @@ public class TokenService {
         params.add("client_secret", clientSecret);
         params.add("refresh_token", token.getRefreshToken());
 
-        log.info("Refresh token request URL: {}", url);
-        log.info("Client ID: {}", clientId);
-        log.info("Client Secret: {}", clientSecret != null ? "***SET***" : "NOT SET");
-
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
         HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
 
         try {
             ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
-            log.info("Refresh token response status: {}", response.getStatusCode());
-            log.info("Refresh token response body: {}", response.getBody());
-
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                log.error("Refresh token failed with status: {}", response.getStatusCode());
-                throw new RuntimeException("Refresh token failed: " + response.getBody());
-            }
-
             Map<String, Object> responseBody = objectMapper.readValue(response.getBody(), Map.class);
 
-            // Kiểm tra response có error không
             if (responseBody.containsKey("error")) {
-                String error = (String) responseBody.get("error");
-                String errorDescription = (String) responseBody.get("error_description");
-                log.error("OAuth error: {} - {}", error, errorDescription);
-                throw new RuntimeException("OAuth error: " + error + " - " + errorDescription);
+                log.error("OAuth error: {} - {}", responseBody.get("error"), responseBody.get("error_description"));
+                throw new RuntimeException("OAuth error: " + responseBody.get("error"));
             }
 
-            if (!responseBody.containsKey("access_token") || !responseBody.containsKey("refresh_token")) {
-                log.error("Invalid refresh token response: missing required fields");
-                throw new RuntimeException("Invalid refresh token response");
-            }
-
-            // Cập nhật token
             token.setAccessToken((String) responseBody.get("access_token"));
             token.setRefreshToken((String) responseBody.get("refresh_token"));
             token.setExpiresIn((Integer) responseBody.get("expires_in"));
+            token.setExpiresAt(LocalDateTime.now().plusSeconds((Integer) responseBody.get("expires_in")));
             token.setUpdatedAt(LocalDateTime.now());
 
             tokenRepository.save(token);
-            log.info("Token refreshed successfully");
+            log.info("Token refreshed successfully for domain: {}", token.getDomain());
             return token;
-
         } catch (Exception e) {
-            log.error("Refresh token failed for domain: {}, member: {}. Error: {}",
-                    token.getDomain(), token.getMemberId(), e.getMessage());
-            throw e;
+            log.error("Refresh token failed: ", e);
+            throw new RuntimeException("Failed to refresh token: " + e.getMessage());
         }
     }
 
     public void saveOrUpdateTokenFromInstallEvent(Map<String, Object> authData) {
         try {
-            Object domain = (String) authData.get("DOMAIN");
+            String domain = (String) authData.get("DOMAIN");
             String memberId = (String) authData.get("member_id");
 
-            // Tìm token hiện tại
             TokenEntity existingToken = tokenRepository.findTopByOrderByCreatedAtDesc();
-
             TokenEntity tokenEntity;
-            if (existingToken != null && existingToken.getDomain() != null && existingToken.getDomain().equals(domain) && memberId.equals(existingToken.getMemberId())) {
 
-                // Update token hiện tại
+            if (existingToken != null && existingToken.getDomain().equals(domain) && existingToken.getMemberId().equals(memberId)) {
                 tokenEntity = existingToken;
                 log.info("Updating existing token for domain: {} member: {}", domain, memberId);
             } else {
-                // Tạo token mới
                 tokenEntity = new TokenEntity();
                 tokenEntity.setCreatedAt(LocalDateTime.now());
                 log.info("Creating new token for domain: {} member: {}", domain, memberId);
             }
 
-            // Cập nhật thông tin token
             tokenEntity.setAccessToken((String) authData.get("AUTH_ID"));
             tokenEntity.setRefreshToken((String) authData.get("REFRESH_ID"));
             tokenEntity.setExpiresIn(Integer.parseInt((String) authData.get("AUTH_EXPIRES")));
-            tokenEntity.setDomain((String) domain);
+            tokenEntity.setExpiresAt(LocalDateTime.now().plusSeconds(Integer.parseInt((String) authData.get("AUTH_EXPIRES"))));
+            tokenEntity.setDomain(domain);
             tokenEntity.setMemberId(memberId);
 
-            // Build client endpoint từ domain
-            if (domain != null && !((String) domain).startsWith("http")) {
+            if (domain != null && !domain.startsWith("http")) {
                 tokenEntity.setClientEndpoint("https://" + domain + "/rest/");
             } else if (domain != null) {
                 tokenEntity.setClientEndpoint(domain + "/rest/");
             }
 
             tokenEntity.setUpdatedAt(LocalDateTime.now());
-
             tokenRepository.save(tokenEntity);
-            log.info("Token saved/updated successfully. New access_token: {}", tokenEntity.getAccessToken());
-
+            log.info("Token saved/updated successfully for domain: {}", domain);
         } catch (Exception e) {
             log.error("Error when saving/updating token: ", e);
             throw new RuntimeException("Failed to save/update token: " + e.getMessage());

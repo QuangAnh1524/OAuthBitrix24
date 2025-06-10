@@ -19,11 +19,13 @@ import java.util.Map;
 public class ContactService {
 
     private final TokenService tokenService;
+    private final BitrixApiService bitrixApiService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    public ContactService(TokenService tokenService) {
+    public ContactService(TokenService tokenService, BitrixApiService bitrixApiService) {
         this.tokenService = tokenService;
+        this.bitrixApiService = bitrixApiService;
         this.restTemplate = new RestTemplate(new BufferingClientHttpRequestFactory(new SimpleClientHttpRequestFactory()));
         this.objectMapper = new ObjectMapper();
     }
@@ -67,43 +69,26 @@ public class ContactService {
         Map<String, Object> params = new HashMap<>();
         params.put("select", new String[]{"ID", "NAME", "LAST_NAME", "PHONE", "EMAIL", "WEB", "ADDRESS", "COMMENTS"});
         params.put("start", 0);
-        JsonNode result = callBitrixAPI("crm.contact.list", params);
-        if (result == null) {
-            log.error("Null response from Bitrix API");
-            throw new RuntimeException("Invalid response from Bitrix API");
-        }
-        log.info("Bitrix API response: {}", result);
-        return result;
+        return bitrixApiService.callAPI("crm.contact.list", params);
     }
 
     public JsonNode getContact(String id) throws Exception {
         Map<String, Object> params = new HashMap<>();
         params.put("id", id);
-        return callBitrixAPI("crm.contact.get", params);
+        return bitrixApiService.callAPI("crm.contact.get", params);
     }
 
     public JsonNode createContact(Map<String, Object> contactData) throws Exception {
         Map<String, Object> params = new HashMap<>();
         Map<String, Object> fields = new HashMap<>();
-
-        if (contactData.get("NAME") != null) {
-            fields.put("NAME", contactData.get("NAME"));
-        }
-        if (contactData.get("PHONE") != null) {
-            fields.put("PHONE", contactData.get("PHONE"));
-        }
-        if (contactData.get("EMAIL") != null) {
-            fields.put("EMAIL", contactData.get("EMAIL"));
-        }
-        if (contactData.get("WEB") != null) {
-            fields.put("WEB", contactData.get("WEB"));
-        }
-        if (contactData.get("ADDRESS") != null) {
-            fields.put("ADDRESS", contactData.get("ADDRESS"));
-        }
+        if (contactData.get("NAME") != null) fields.put("NAME", contactData.get("NAME"));
+        if (contactData.get("PHONE") != null) fields.put("PHONE", contactData.get("PHONE"));
+        if (contactData.get("EMAIL") != null) fields.put("EMAIL", contactData.get("EMAIL"));
+        if (contactData.get("WEB") != null) fields.put("WEB", contactData.get("WEB"));
+        if (contactData.get("ADDRESS") != null) fields.put("ADDRESS", contactData.get("ADDRESS"));
         params.put("fields", fields);
 
-        JsonNode result = callBitrixAPI("crm.contact.add", params);
+        JsonNode result = bitrixApiService.callAPI("crm.contact.add", params);
 
         if (contactData.containsKey("BANK_NAME") || contactData.containsKey("BANK_ACCOUNT")) {
             try {
@@ -121,25 +106,14 @@ public class ContactService {
         Map<String, Object> params = new HashMap<>();
         params.put("id", id);
         Map<String, Object> fields = new HashMap<>();
-
-        if (contactData.get("NAME") != null) {
-            fields.put("NAME", contactData.get("NAME"));
-        }
-        if (contactData.get("PHONE") != null) {
-            fields.put("PHONE", contactData.get("PHONE"));
-        }
-        if (contactData.get("EMAIL") != null) {
-            fields.put("EMAIL", contactData.get("EMAIL"));
-        }
-        if (contactData.get("WEB") != null) {
-            fields.put("WEB", contactData.get("WEB"));
-        }
-        if (contactData.get("ADDRESS") != null) {
-            fields.put("ADDRESS", contactData.get("ADDRESS"));
-        }
+        if (contactData.get("NAME") != null) fields.put("NAME", contactData.get("NAME"));
+        if (contactData.get("PHONE") != null) fields.put("PHONE", contactData.get("PHONE"));
+        if (contactData.get("EMAIL") != null) fields.put("EMAIL", contactData.get("EMAIL"));
+        if (contactData.get("WEB") != null) fields.put("WEB", contactData.get("WEB"));
+        if (contactData.get("ADDRESS") != null) fields.put("ADDRESS", contactData.get("ADDRESS"));
         params.put("fields", fields);
 
-        JsonNode result = callBitrixAPI("crm.contact.update", params);
+        JsonNode result = bitrixApiService.callAPI("crm.contact.update", params);
 
         if (contactData.containsKey("BANK_NAME") || contactData.containsKey("BANK_ACCOUNT")) {
             try {
@@ -147,11 +121,9 @@ public class ContactService {
             } catch (HttpClientErrorException e) {
                 if (e.getStatusCode() == HttpStatus.FORBIDDEN) {
                     log.warn("Access denied for updating bank requisites: {}", e.getResponseBodyAsString());
-                    throw new RuntimeException("Access denied for updating bank details. Please check permissions.");
-                } else {
-                    log.error("Could not update bank requisites: ", e);
-                    throw e;
+                    throw new RuntimeException("Access denied for updating bank details.");
                 }
+                throw e;
             }
         }
 
@@ -160,17 +132,28 @@ public class ContactService {
 
     public JsonNode deleteContact(String id) throws Exception {
         Map<String, Object> params = new HashMap<>();
+        params.put("filter", Map.of("ENTITY_TYPE_ID", 3, "ENTITY_ID", id));
+        JsonNode requisites = bitrixApiService.callAPI("crm.requisite.list", params);
+
+        if (requisites.has("result") && requisites.get("result").isArray()) {
+            for (JsonNode requisite : requisites.get("result")) {
+                String requisiteId = requisite.get("ID").asText();
+                log.info("Deleting requisite ID: {}", requisiteId);
+                Map<String, Object> deleteParams = new HashMap<>();
+                deleteParams.put("id", requisiteId);
+                bitrixApiService.callAPI("crm.requisite.delete", deleteParams);
+            }
+        }
+
+        params = new HashMap<>();
         params.put("id", id);
-        return callBitrixAPI("crm.contact.delete", params);
+        return bitrixApiService.callAPI("crm.contact.delete", params);
     }
 
     private void createBankRequisites(String contactId, Map<String, Object> contactData) throws Exception {
-        log.info("Creating bank requisites for contactId: {}", contactId);
-
-        JsonNode presets = callBitrixAPI("crm.requisite.preset.list", new HashMap<>());
+        JsonNode presets = bitrixApiService.callAPI("crm.requisite.preset.list", new HashMap<>());
         String presetId = null;
 
-        // Tìm Preset có tên "Person"
         if (presets.has("result") && presets.get("result").isArray()) {
             for (JsonNode preset : presets.get("result")) {
                 if ("Person".equals(preset.get("NAME").asText())) {
@@ -181,37 +164,33 @@ public class ContactService {
             }
         }
 
-        // Nếu không tìm thấy Preset "Person", dùng Preset đầu tiên
         if (presetId == null && presets.get("result").size() > 0) {
             presetId = presets.get("result").get(0).get("ID").asText();
             log.warn("No Person Preset found, using default Preset ID: {}", presetId);
         }
 
-        // Nếu không có Preset nào, báo lỗi
         if (presetId == null) {
             log.error("No requisite preset found");
             throw new RuntimeException("No requisite preset available");
         }
 
-        //Tạo Requisite
         Map<String, Object> params = new HashMap<>();
         params.put("fields", Map.of(
-                "ENTITY_TYPE_ID", 3, // Contact
+                "ENTITY_TYPE_ID", 3,
                 "ENTITY_ID", contactId,
                 "PRESET_ID", presetId,
                 "NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "Default")),
                 "ACTIVE", "Y"
         ));
 
-        JsonNode requisiteResult = callBitrixAPI("crm.requisite.add", params);
+        JsonNode requisiteResult = bitrixApiService.callAPI("crm.requisite.add", params);
 
-        //Tạo Bank Detail
         if (requisiteResult.has("result")) {
             String requisiteId = requisiteResult.get("result").asText();
             Map<String, Object> bankParams = new HashMap<>();
             bankParams.put("fields", Map.of(
                     "ENTITY_ID", requisiteId,
-                    "COUNTRY_ID", 122, // Vietnam
+                    "COUNTRY_ID", 122,
                     "NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "Default Bank")),
                     "RQ_BANK_NAME", String.valueOf(contactData.getOrDefault("BANK_NAME", "")),
                     "RQ_ACC_NUM", String.valueOf(contactData.getOrDefault("BANK_ACCOUNT", "")),
@@ -220,37 +199,29 @@ public class ContactService {
             ));
 
             log.info("Bank detail params: {}", bankParams);
-            callBitrixAPI("crm.requisite.bankdetail.add", bankParams);
+            bitrixApiService.callAPI("crm.requisite.bankdetail.add", bankParams);
         }
     }
 
     private void updateBankRequisites(String contactId, Map<String, Object> contactData) throws Exception {
-        log.info("Updating bank requisites for contactId: {}, contactData: {}", contactId, contactData);
-
         Map<String, Object> params = new HashMap<>();
         params.put("filter", Map.of("ENTITY_TYPE_ID", 3, "ENTITY_ID", contactId));
-
-        log.info("Fetching requisites with params: {}", params);
-        JsonNode requisites = callBitrixAPI("crm.requisite.list", params);
+        JsonNode requisites = bitrixApiService.callAPI("crm.requisite.list", params);
 
         if (requisites.has("result") && requisites.get("result").isArray() && requisites.get("result").size() > 0) {
-            String presetId = requisites.get("result").get(0).get("ID").asText();
-            log.info("Found presetId: {}", presetId);
+            String requisiteId = requisites.get("result").get(0).get("ID").asText();
+            log.info("Found requisiteId: {}", requisiteId);
 
             Map<String, Object> updateParams = new HashMap<>();
-            updateParams.put("id", presetId);
+            updateParams.put("id", requisiteId);
             String bankName = contactData.get("BANK_NAME") != null ? String.valueOf(contactData.get("BANK_NAME")) : "";
             updateParams.put("fields", Map.of("NAME", bankName));
-
-            log.info("Updating preset with params: {}", updateParams);
-            callBitrixAPI("crm.requisite.update", updateParams);
+            bitrixApiService.callAPI("crm.requisite.update", updateParams);
 
             Map<String, Object> bankParams = new HashMap<>();
-            bankParams.put("filter", Map.of("ENTITY_ID", presetId));
+            bankParams.put("filter", Map.of("ENTITY_ID", requisiteId));
             bankParams.put("select", new String[]{"ID", "NAME", "RQ_BANK_NAME", "RQ_ACC_NUM"});
-
-            log.info("Fetching bank details with params: {}", bankParams);
-            JsonNode bankDetails = callBitrixAPI("crm.requisite.bankdetail.list", bankParams);
+            JsonNode bankDetails = bitrixApiService.callAPI("crm.requisite.bankdetail.list", bankParams);
 
             if (bankDetails.has("result") && bankDetails.get("result").isArray() && bankDetails.get("result").size() > 0) {
                 String bankDetailId = bankDetails.get("result").get(0).get("ID").asText();
@@ -267,9 +238,7 @@ public class ContactService {
                         "SORT", 500
                 ));
 
-                log.info("Updating bank detail with params: {}", updateBankParams);
-                JsonNode updateResult = callBitrixAPI("crm.requisite.bankdetail.update", updateBankParams);
-                log.info("Bank detail update result: {}", updateResult);
+                bitrixApiService.callAPI("crm.requisite.bankdetail.update", updateBankParams);
             } else {
                 log.info("No bank details found, creating new bank requisites");
                 createBankRequisites(contactId, contactData);
