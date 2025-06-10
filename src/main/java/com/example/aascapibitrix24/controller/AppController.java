@@ -69,13 +69,4 @@ public class AppController {
                 </html>
                 """;
     }
-
-    /**
-     * Endpoint để serve static files nếu cần
-     */
-    @GetMapping("/assets/**")
-    public ResponseEntity<String> getAssets(HttpServletRequest request) {
-        // Serve CSS, JS files nếu cần
-        return ResponseEntity.notFound().build();
-    }
 }

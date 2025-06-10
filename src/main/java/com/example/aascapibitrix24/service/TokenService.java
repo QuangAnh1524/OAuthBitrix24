@@ -2,7 +2,6 @@ package com.example.aascapibitrix24.service;
 
 import com.example.aascapibitrix24.entity.TokenEntity;
 import com.example.aascapibitrix24.repository.TokenRepository;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,7 +44,7 @@ public class TokenService {
             tokenEntity.setAccessToken((String) authData.get("access_token"));
             tokenEntity.setRefreshToken((String) authData.get("refresh_token"));
             tokenEntity.setExpiresIn((Integer) authData.get("expires_in"));
-            tokenEntity.setExpiresAt(LocalDateTime.now().plusSeconds((Integer) authData.get("expires_in"))); // Lưu thời điểm hết hạn
+            tokenEntity.setExpiresAt(LocalDateTime.now().plusSeconds((Integer) authData.get("expires_in"))); // luu thời điểm hết hạn
             tokenEntity.setDomain((String) authData.get("domain"));
             tokenEntity.setMemberId((String) authData.get("member_id"));
             tokenEntity.setClientEndpoint((String) authData.get("client_endpoint"));
@@ -74,7 +73,7 @@ public class TokenService {
         throw new RuntimeException("No valid token found");
     }
 
-    // Kiểm tra token có hết hạn không
+    // kểm tra token có hết hạn không
         if (isTokenExpired(token)) {
         log.info("Token expired for domain: {}. Refreshing token...", token.getDomain());
         return refreshToken();
@@ -87,7 +86,7 @@ public class TokenService {
         if (token.getExpiresAt() == null) {
             return true;
         }
-        // Kiểm tra trước 5 phút để tránh rủi ro
+        // kiem tra trước 5 phút
         return LocalDateTime.now().isAfter(token.getExpiresAt().minusMinutes(5));
     }
 

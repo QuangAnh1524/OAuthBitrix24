@@ -279,6 +279,8 @@
 </div>
 
 <script>
+    // Thay thế toàn bộ script section trong HTML với code này:
+
     let editingContactId = null;
     let allContacts = [];
     const apiBaseUrl = '{{API_BASE_URL}}'; // Được thay thế bởi AppController
@@ -293,20 +295,10 @@
     document.getElementById('contactForm').addEventListener('submit', function(e) {
         e.preventDefault();
 
-        const contactData = {
-            NAME: document.getElementById('name').value,
-            PHONE: document.getElementById('phone').value ? [{ VALUE: document.getElementById('phone').value, VALUE_TYPE: 'WORK' }] : [],
-            EMAIL: document.getElementById('email').value ? [{ VALUE: document.getElementById('email').value, VALUE_TYPE: 'WORK' }] : [],
-            WEB: document.getElementById('website').value ? [{ VALUE: document.getElementById('website').value, VALUE_TYPE: 'WORK' }] : [],
-            ADDRESS: [document.getElementById('ward').value, document.getElementById('district').value, document.getElementById('city').value].filter(Boolean).join(', '),
-            BANK_NAME: document.getElementById('bankName').value || null,
-            BANK_ACCOUNT: document.getElementById('bankAccount').value || null
-        };
-
         if (editingContactId) {
-            updateContact(editingContactId, contactData);
+            updateContact();
         } else {
-            createContact(contactData);
+            createContact();
         }
     });
 
@@ -354,28 +346,111 @@
 
             if (!bankDetailResponse.ok) throw new Error(bankDetailData.error_description || 'Failed to load bank details');
 
+            // Tạo map để lookup nhanh hơn
+            const requisiteMap = new Map();
+            const bankDetailMap = new Map();
+
+            // Map requisites theo ENTITY_ID (contact ID)
+            (requisiteData.result || []).forEach(req => {
+                if (req.ENTITY_TYPE_ID === '3' || req.ENTITY_TYPE_ID === 3) { // Đảm bảo là contact entity
+                    if (!requisiteMap.has(req.ENTITY_ID)) {
+                        requisiteMap.set(req.ENTITY_ID, []);
+                    }
+                    requisiteMap.get(req.ENTITY_ID).push(req);
+                }
+            });
+
+            // Map bank details theo ENTITY_ID (requisite ID)
+            (bankDetailData.result || []).forEach(bd => {
+                bankDetailMap.set(bd.ENTITY_ID, bd);
+            });
+
+            console.log('Requisite Map:', requisiteMap);
+            console.log('Bank Detail Map:', bankDetailMap);
+
             // Gộp dữ liệu contacts với requisites và bank details
             allContacts = (contactData.result || []).map(contact => {
-                const requisites = (requisiteData.result || []).filter(req => req.ENTITY_ID === contact.ID && req.PRESET_ID === '1');
-                const bankDetails = (bankDetailData.result || []).filter(bd => requisites.some(req => req.ID === bd.REQUISITE_ID));
-                return {
+                const contactId = String(contact.ID); // Đảm bảo ID là string
+                const contactRequisites = requisiteMap.get(contactId) || [];
+
+                // Tìm bank details từ requisites
+                let bankName = '';
+                let bankAccount = '';
+
+                for (const requisite of contactRequisites) {
+                    const bankDetail = bankDetailMap.get(String(requisite.ID));
+                    if (bankDetail) {
+                        bankName = bankDetail.RQ_BANK_NAME || '';
+                        bankAccount = bankDetail.RQ_ACC_NUM || '';
+                        break; // Lấy bank detail đầu tiên tìm được
+                    }
+                }
+
+                const mappedContact = {
                     ID: contact.ID,
                     NAME: contact.NAME || '',
                     PHONE: contact.PHONE || [],
                     EMAIL: contact.EMAIL || [],
                     WEB: contact.WEB || [],
                     ADDRESS: contact.ADDRESS || '',
-                    BANK_NAME: bankDetails[0]?.RQ_BANK_NAME || '',
-                    BANK_ACCOUNT: bankDetails[0]?.RQ_ACC_NUM || ''
+                    BANK_NAME: bankName,
+                    BANK_ACCOUNT: bankAccount
                 };
+
+                console.log(`Contact ${contactId} mapped:`, mappedContact);
+                return mappedContact;
             });
 
-            console.log('Parsed contacts:', allContacts);
+            console.log('Final parsed contacts:', allContacts);
             displayContacts(allContacts);
         } catch (error) {
             console.error('Error loading contacts:', error);
             showMessage('Lỗi khi tải danh sách contacts: ' + error.message, 'error');
         }
+    }
+
+    // Hàm helper để format multi-value fields cho create/update
+    function formatMultiValueField(value, type) {
+        if (!value || value.trim() === '') return [];
+
+        return [
+            {
+                "VALUE": value.trim(),
+                "VALUE_TYPE": type === 'PHONE' ? 'WORK' : (type === 'EMAIL' ? 'WORK' : 'WORK')
+            }
+        ];
+    }
+
+    // Hàm helper để format multi-value fields cho update (cần handle existing values)
+    function formatMultiValueFieldForUpdate(newValue, existingValues, type) {
+        if (!newValue || newValue.trim() === '') {
+            // Nếu không có giá trị mới, xóa tất cả values cũ
+            return existingValues.map(existing => ({
+                "ID": existing.ID,
+                "DELETE": "Y"
+            }));
+        }
+
+        const newValueTrimmed = newValue.trim();
+        const result = [];
+
+        // Nếu có values cũ, xóa chúng trước
+        if (existingValues && existingValues.length > 0) {
+            existingValues.forEach(existing => {
+                result.push({
+                    "ID": existing.ID,
+                    "DELETE": "Y"
+                });
+            });
+        }
+
+        // Thêm value mới
+        result.push({
+            "VALUE": newValueTrimmed,
+            "VALUE_TYPE": type === 'PHONE' ? 'WORK' : (type === 'EMAIL' ? 'WORK' : 'WORK')
+        });
+
+        return result;
     }
 
     // Hiển thị danh sách contacts
@@ -401,74 +476,156 @@
             console.log('Rendering contact:', { id, name, phone, email, website, address, bankName, bankAccount });
 
             return `
-                <div class="contact-card">
-                    <div class="contact-name">${name}</div>
-                    ${phone ? `<div class="contact-info"><strong>📞 SĐT:</strong> <span>${phone}</span></div>` : ''}
-                    ${email ? `<div class="contact-info"><strong>📧 Email:</strong> <span>${email}</span></div>` : ''}
-                    ${website ? `<div class="contact-info"><strong>🌐 Website:</strong> <span><a href="${website}" target="_blank">${website}</a></span></div>` : ''}
-                    ${address ? `<div class="contact-info"><strong>📍 Địa chỉ:</strong> <span>${address}</span></div>` : ''}
-                    ${bankName ? `<div class="contact-info"><strong>🏦 Tên ngân hàng:</strong> <span>${bankName}</span></div>` : ''}
-                    ${bankAccount ? `<div class="contact-info"><strong>💳 Số tài khoản:</strong> <span>${bankAccount}</span></div>` : ''}
-                    <div class="contact-actions">
-                        <button class="btn" onclick="editContact('${id}')">✏️ Sửa</button>
-                        <button class="btn btn-danger" onclick="deleteContact('${id}')">🗑️ Xóa</button>
-                    </div>
+            <div class="contact-card">
+                <div class="contact-name">${name}</div>
+                ${phone ? `<div class="contact-info"><strong>📞 SĐT:</strong> <span>${phone}</span></div>` : ''}
+                ${email ? `<div class="contact-info"><strong>📧 Email:</strong> <span>${email}</span></div>` : ''}
+                ${website ? `<div class="contact-info"><strong>🌐 Website:</strong> <span><a href="${website}" target="_blank">${website}</a></span></div>` : ''}
+                ${address ? `<div class="contact-info"><strong>📍 Địa chỉ:</strong> <span>${address}</span></div>` : ''}
+                ${bankName ? `<div class="contact-info"><strong>🏦 Tên ngân hàng:</strong> <span>${bankName}</span></div>` : ''}
+                ${bankAccount ? `<div class="contact-info"><strong>💳 Số tài khoản:</strong> <span>${bankAccount}</span></div>` : ''}
+                <div class="contact-actions">
+                    <button class="btn" onclick="editContact('${id}')">✏️ Sửa</button>
+                    <button class="btn btn-danger" onclick="deleteContact('${id}')">🗑️ Xóa</button>
                 </div>
-            `;
+            </div>
+        `;
         }).join('');
 
         container.innerHTML = `<div class="contacts-grid">${contactsHtml}</div>`;
     }
 
     // Tạo contact mới
-    async function createContact(contactData) {
+    async function createContact() {
+        const form = document.getElementById('contactForm');
+
+        // Tạo address từ các field riêng biệt
+        const ward = document.getElementById('ward').value || '';
+        const district = document.getElementById('district').value || '';
+        const city = document.getElementById('city').value || '';
+        const address = [ward, district, city].filter(Boolean).join(', ');
+
+        // Tạo object với format đúng cho Bitrix24
+        const contactData = {
+            NAME: document.getElementById('name').value || '',
+            ADDRESS: address,
+            BANK_NAME: document.getElementById('bankName').value || '',
+            BANK_ACCOUNT: document.getElementById('bankAccount').value || ''
+        };
+
+        // Format multi-value fields
+        const phone = document.getElementById('phone').value;
+        if (phone && phone.trim()) {
+            contactData.PHONE = formatMultiValueField(phone, 'PHONE');
+        }
+
+        const email = document.getElementById('email').value;
+        if (email && email.trim()) {
+            contactData.EMAIL = formatMultiValueField(email, 'EMAIL');
+        }
+
+        const website = document.getElementById('website').value;
+        if (website && website.trim()) {
+            contactData.WEB = formatMultiValueField(website, 'WEB');
+        }
+
+        console.log('Creating contact with data:', contactData);
+
         try {
-            console.log('Creating contact with data:', contactData);
             const response = await fetch(`${apiBaseUrl}/api/contacts`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(contactData)
             });
-            const data = await response.json();
-            console.log('Create contact response:', data);
 
-            if (!response.ok) throw new Error(data.error_description || 'Failed to create contact');
+            const result = await response.json();
+            console.log('Create contact response:', result);
 
-            const newContact = {
-                ID: data.result,
-                ...contactData
-            };
-            allContacts.unshift(newContact);
-            displayContacts(allContacts);
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to create contact');
+            }
+
+            showMessage('Contact đã được tạo thành công!', 'success');
             resetForm();
-            showMessage('Thêm contact thành công!', 'success');
+            loadContacts(); // Reload danh sách
         } catch (error) {
             console.error('Error creating contact:', error);
-            showMessage('Lỗi khi thêm contact: ' + error.message, 'error');
+            showMessage('Lỗi khi tạo contact: ' + error.message, 'error');
         }
     }
 
     // Cập nhật contact
-    async function updateContact(id, contactData) {
+    async function updateContact() {
+        const form = document.getElementById('contactForm');
+        if (!form) {
+            showMessage('Không tìm thấy form contact', 'error');
+            return;
+        }
+
+        if (!editingContactId) {
+            showMessage('Không có ID contact để cập nhật', 'error');
+            return;
+        }
+
+        // Tìm contact hiện tại để lấy existing multi-values
+        const currentContact = allContacts.find(c => c.ID == editingContactId);
+        if (!currentContact) {
+            showMessage('Không tìm thấy contact để cập nhật', 'error');
+            return;
+        }
+
+        // Tạo address từ các field riêng biệt
+        const ward = document.getElementById('ward').value || '';
+        const district = document.getElementById('district').value || '';
+        const city = document.getElementById('city').value || '';
+        const address = [ward, district, city].filter(Boolean).join(', ');
+
+        // Tạo object với format đúng
+        const contactData = {
+            NAME: document.getElementById('name').value || '',
+            ADDRESS: address,
+            BANK_NAME: document.getElementById('bankName').value || '',
+            BANK_ACCOUNT: document.getElementById('bankAccount').value || ''
+        };
+
+        // Format multi-value fields cho update
+        const phone = document.getElementById('phone').value;
+        const phoneUpdate = formatMultiValueFieldForUpdate(phone, currentContact.PHONE, 'PHONE');
+        if (phoneUpdate.length > 0) {
+            contactData.PHONE = phoneUpdate;
+        }
+
+        const email = document.getElementById('email').value;
+        const emailUpdate = formatMultiValueFieldForUpdate(email, currentContact.EMAIL, 'EMAIL');
+        if (emailUpdate.length > 0) {
+            contactData.EMAIL = emailUpdate;
+        }
+
+        const website = document.getElementById('website').value;
+        const webUpdate = formatMultiValueFieldForUpdate(website, currentContact.WEB, 'WEB');
+        if (webUpdate.length > 0) {
+            contactData.WEB = webUpdate;
+        }
+
+        console.log('Updating contact with data:', contactData);
+
         try {
-            console.log('Updating contact:', id, contactData);
-            const response = await fetch(`${apiBaseUrl}/api/contacts/${id}`, {
+            const response = await fetch(`${apiBaseUrl}/api/contacts/${editingContactId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(contactData)
             });
-            const data = await response.json();
-            console.log('Update contact response:', data);
 
-            if (!response.ok) throw new Error(data.error_description || 'Failed to update contact');
+            const result = await response.json();
+            console.log('Update contact response:', result);
 
-            const index = allContacts.findIndex(c => c.ID == id);
-            if (index !== -1) {
-                allContacts[index] = { ID: id, ...contactData };
-                displayContacts(allContacts);
-                resetForm();
-                showMessage('Cập nhật contact thành công!', 'success');
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to update contact');
             }
+
+            showMessage('Contact đã được cập nhật thành công!', 'success');
+            resetForm();
+            loadContacts(); // Reload danh sách
         } catch (error) {
             console.error('Error updating contact:', error);
             showMessage('Lỗi khi cập nhật contact: ' + error.message, 'error');
@@ -489,10 +646,13 @@
         document.getElementById('phone').value = contact.PHONE?.[0]?.VALUE || '';
         document.getElementById('email').value = contact.EMAIL?.[0]?.VALUE || '';
         document.getElementById('website').value = contact.WEB?.[0]?.VALUE || '';
+
+        // Phân tách address thành các phần
         const addressParts = contact.ADDRESS ? contact.ADDRESS.split(', ') : ['', '', ''];
         document.getElementById('ward').value = addressParts[0] || '';
         document.getElementById('district').value = addressParts[1] || '';
         document.getElementById('city').value = addressParts[2] || '';
+
         document.getElementById('bankName').value = contact.BANK_NAME || '';
         document.getElementById('bankAccount').value = contact.BANK_ACCOUNT || '';
 
